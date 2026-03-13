@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>海洋環保守護者 V4 - 深海探險</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: "Microsoft JhengHei", sans-serif; }
+        #start-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle, #001b3d 0%, #00050a 100%);
+            display: flex; justify-content: center; align-items: center; z-index: 10000; color: white;
+        }
+        .ui-box { text-align: center; padding: 40px; border-radius: 30px; background: rgba(255,255,255,0.05); backdrop-filter: blur(10px); border: 1px solid rgba(0,170,255,0.3); }
+        #launch-btn {
+            padding: 25px 60px; font-size: 28px; cursor: pointer;
+            background: linear-gradient(45deg, #28a745, #1e7e34);
+            color: white; border: none; border-radius: 50px;
+            box-shadow: 0 0 30px rgba(40,167,69,0.4); font-weight: bold; transition: 0.3s;
+        }
+        #launch-btn:hover { transform: scale(1.05); box-shadow: 0 0 50px rgba(40,167,69,0.7); }
+        #game-ui { display: none; position: fixed; width: 100%; height: 100%; z-index: 9999; pointer-events: none; color: white; }
+        .stats { position: absolute; top: 20px; left: 20px; background: rgba(0,8,26,0.7); padding: 15px; border-radius: 12px; border: 1px solid #0af; pointer-events: auto; }
+        .ox-bar { width: 200px; height: 12px; background: #111; border: 1px solid #0af; margin-top: 10px; border-radius: 6px; overflow: hidden; }
+        #ox-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #00f2fe, #4facfe); transition: 0.3s; }
+        .controls { position: absolute; bottom: 30px; left: 30px; pointer-events: auto; display: grid; grid-template-columns: repeat(3, 75px); gap: 10px; }
+        .m-btn { width: 75px; height: 75px; cursor: pointer; background: rgba(0,100,255,0.2); color: white; border: 2px solid #0af; border-radius: 15px; font-weight: bold; }
+        .m-btn:active { background: #0af; }
+        .actions { position: absolute; bottom: 30px; right: 30px; pointer-events: auto; display: flex; flex-direction: column; gap: 15px; }
+        .action-btn { padding: 20px 40px; color: white; border: none; border-radius: 15px; font-size: 20px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        #fire-btn { background: #e74c3c; box-shadow: 0 0 20px rgba(231,76,60,0.5); }
+        #quiz-btn { background: #3498db; box-shadow: 0 0 20px rgba(52,152,219,0.5); }
+    </style>
+</head>
+<body>
+
+<div id="start-screen">
+    <div class="ui-box">
+        <h1 style="font-size: 48px; margin-bottom: 10px;">海洋環保守護者 V4</h1>
+        <p style="color: #0af; margin-bottom: 40px;">參考圖五打造：多樣化魚群與深海視覺系統</p>
+        <button id="launch-btn">點擊這裡進入大海</button>
+    </div>
+</div>
+
+<div id="game-ui">
+    <div class="stats">
+        積分：<span id="score">0</span> | 繩索：<span id="rope-count">10</span> | 生命：<span id="hp">100</span>%
+        <div class="ox-bar"><div id="ox-fill"></div></div>
+    </div>
+    <div class="controls">
+        <div style="grid-column: 2;"><button class="m-btn" id="btn-up">前進</button></div>
+        <button class="m-btn" id="btn-left">左轉</button>
+        <button class="m-btn" id="btn-down">後退</button>
+        <button class="m-btn" id="btn-right">右轉</button>
+        <button class="m-btn" id="btn-float" style="background: #f39c12;">上浮</button>
+        <button class="m-btn" id="btn-sink" style="background: #f39c12; grid-column: 3;">下沉</button>
+    </div>
+    <div class="actions">
+        <button id="fire-btn" class="action-btn">射出繩索</button>
+        <button id="quiz-btn" class="action-btn">挑戰答題</button>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+let scene, camera, renderer, diver, gameState = "MENU";
+let fishes = [], hunters = [], activeRopes = [], particles;
+let score = 0, ropes = 10, oxygen = 100, hp = 100;
+let moveFlags = { up: false, down: false, left: false, right: false, float: false, sink: false };
+
+document.getElementById('launch-btn').addEventListener('click', () => {
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('game-ui').style.display = 'block';
+    initGame();
+});
+
+function initGame() {
+    scene = new THREE.Scene();
+    const oceanColor = 0x00081a;
+    scene.background = new THREE.Color(oceanColor);
+    scene.fog = new THREE.FogExp2(oceanColor, 0.007);
+
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // 氣泡微粒
+    const pGeo = new THREE.BufferGeometry();
+    const pPos = [];
+    for(let i=0; i<1500; i++) pPos.push((Math.random()-0.5)*800, (Math.random()-0.5)*400, (Math.random()-0.5)*800);
+    pGeo.setAttribute('position', new THREE.Float32BufferAttribute(pPos, 3));
+    particles = new THREE.Points(pGeo, new THREE.PointsMaterial({color: 0xffffff, size: 0.4, transparent: true, opacity: 0.3}));
+    scene.add(particles);
+
+    // 潛水員
+    diver = new THREE.Group();
+    let body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.5, 1), new THREE.MeshStandardMaterial({color: 0x333}));
+    let tank = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 1.8), new THREE.MeshStandardMaterial({color: 0xf60}));
+    tank.position.set(0, 0, -0.8);
+    diver.add(body, tank);
+    diver.position.y = 40;
+    scene.add(diver);
+    scene.add(new THREE.AmbientLight(0x404040, 0.8));
+    let sun = new THREE.DirectionalLight(0x44aaff, 1.5);
+    sun.position.set(0, 100, 0);
+    scene.add(sun);
+
+    // 生成魚群 (參考圖二三四造型)
+    for(let i=0; i<80; i++) spawnFish();
+    for(let i=0; i<8; i++) spawnHunter();
+
+    setupControls();
+    gameState = "PLAY";
+    animate();
+}
+
+function spawnFish() {
+    let g = new THREE.Group();
+    let type = Math.floor(Math.random() * 3);
+    let color = [0x00ffff, 0xff00ff, 0xffff00, 0x00ff00, 0xffffff][Math.floor(Math.random()*5)];
+    let mat = new THREE.MeshStandardMaterial({color: color, emissive: color, emissiveIntensity: 0.3});
+    
+    if(type === 0) { // 瘦長型
+        let b = new THREE.Mesh(new THREE.BoxGeometry(2, 0.4, 0.2), mat);
+        let t = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.6, 3), mat);
+        t.rotation.z = Math.PI/2; t.position.x = 1.2; g.add(b, t);
+    } else if(type === 1) { // 扁平型
+        let b = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.6, 0.1), mat);
+        g.add(b);
+    } else { // 圓形
+        let b = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 8), mat);
+        b.scale.set(1.4, 1, 0.5); g.add(b);
+    }
+    g.position.set((Math.random()-0.5)*800, -Math.random()*150, (Math.random()-0.5)*800);
+    scene.add(g);
+    fishes.push({ m: g, speed: 0.2+Math.random()*0.3, turn: (Math.random()-0.5)*0.03 });
+}
+
+function spawnHunter() {
+    let m = new THREE.Mesh(new THREE.BoxGeometry(8, 3, 4), new THREE.MeshStandardMaterial({color: 0xff0000}));
+    m.position.set((Math.random()-0.5)*800, -Math.random()*100 - 20, (Math.random()-0.5)*800);
+    scene.add(m);
+    hunters.push({ m: m, speed: 0.3 });
+}
+
+function setupControls() {
+    const bind = (id, flag) => {
+        let el = document.getElementById(id);
+        el.onmousedown = el.ontouchstart = (e) => { e.preventDefault(); moveFlags[flag] = true; };
+        el.onmouseup = el.onmouseleave = el.ontouchend = () => moveFlags[flag] = false;
+    };
+    ['up','down','left','right','float','sink'].forEach(k => bind('btn-'+k, k));
+
+    document.getElementById('fire-btn').onclick = () => {
+        if(ropes <= 0) return alert("繩索用完！請答題補充");
+        ropes--; updateUI();
+        let r = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 50), new THREE.MeshBasicMaterial({color: 0xffff00}));
+        r.rotation.x = Math.PI/2;
+        let g = new THREE.Group(); g.add(r);
+        g.position.copy(diver.position); g.rotation.copy(diver.rotation);
+        scene.add(g);
+        activeRopes.push({ m: g, life: 60 });
+    };
+
+    document.getElementById('quiz-btn').onclick = () => {
+        let ans = prompt("海洋垃圾中，哪一種最難分解？\n1. 蘋果皮\n2. 塑膠瓶\n3. 紙張\n(請輸入數字)");
+        if(ans === "2") { ropes += 5; oxygen = 100; updateUI(); alert("答對了！繩索+5，氧氣補滿"); }
+    };
+}
+
+function updateUI() {
+    document.getElementById('score').innerText = score;
+    document.getElementById('rope-count').innerText = ropes;
+    document.getElementById('hp').innerText = Math.ceil(hp);
+    document.getElementById('ox-fill').style.width = oxygen + "%";
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    if(gameState === "PLAY") {
+        oxygen -= 0.03; if(oxygen <= 0) { oxygen = 0; hp -= 0.1; }
+        if(moveFlags.up) diver.translateZ(-1.8);
+        if(moveFlags.down) diver.translateZ(1.8);
+        if(moveFlags.left) diver.rotation.y += 0.05;
+        if(moveFlags.right) diver.rotation.y -= 0.05;
+        if(moveFlags.float) diver.position.y += 0.8;
+        if(moveFlags.sink) diver.position.y -= 0.8;
+
+        fishes.forEach(f => { f.m.translateZ(-f.speed); f.m.rotation.y += f.turn; });
+        activeRopes.forEach((r, i) => {
+            r.m.translateZ(-7); r.life--;
+            hunters.forEach((h, hi) => {
+                if(r.m.position.distanceTo(h.m.position) < 20) {
+                    scene.remove(h.m); hunters.splice(hi, 1);
+                    scene.remove(r.m); activeRopes.splice(i, 1);
+                    score += 10; spawnHunter(); updateUI();
+                }
+            });
+            if(r.life <= 0 && activeRopes[i]) { scene.remove(r.m); activeRopes.splice(i, 1); }
+        });
+
+        particles.position.y += 0.05; if(particles.position.y > 50) particles.position.y = 0;
+
+        camera.position.lerp(new THREE.Vector3(
+            diver.position.x + Math.sin(diver.rotation.y)*70, 
+            diver.position.y + 35, 
+            diver.position.z + Math.cos(diver.rotation.y)*70
+        ), 0.1);
+        camera.lookAt(diver.position);
+        updateUI();
+        if(hp <= 0) { alert("遊戲結束！"); window.location.reload(); }
+    }
+    renderer.render(scene, camera);
+}
+window.onresize = () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); };
+</script>
+</body>
+</html>
